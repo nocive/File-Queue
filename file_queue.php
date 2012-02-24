@@ -57,6 +57,7 @@ class FileQueue
 
 	public function work( $limit = 10 )
 	{
+		$limit = (int) $limit;
 		$output = array();
 		// get flat files only ordered by modification time and limited by $limit
 		// i rather exec() my way through this than using native php code
@@ -70,7 +71,7 @@ class FileQueue
 	public function job()
 	{
 		$work = $this->work( 1 );
-		if (! empty( $work )) {
+		if (! empty( $work ) && is_array( $work )) {
 			return current( $work );
 		}
 		return false;
@@ -203,6 +204,8 @@ class FileQueue
 
 	protected function _rename( $src, $dest )
 	{
+		// php's rename doesn't allow not to overwrite if file exists
+		// this works for *nix systems
 		if (@link( $src, $dest )) {
 			@unlink( $src );
 			return true;
