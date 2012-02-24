@@ -94,6 +94,7 @@ class FileQueue
 		}
 
 		if (false === ($fh = @fopen( $qfilename, 'x' )) || false === @file_put_contents( $qfilename, $this->_pack( $payload ) )) {
+			// failed to lock or write payload to file
 			return -1;
 		}
 
@@ -229,7 +230,7 @@ class FileQueue
 	{
 		$output = array();
 		$pattern = '^' . preg_quote( $uid ) . '$';
-		$cmd = 'grep ' . escapeshellarg( $pattern ) . ' ' . escapeshellarg( $this->_config['queue_joblog'] ) . ' 2>/dev/null || echo ' . escapeshellarg( $uid ) . ' >> ' . $this->_config['queue_joblog'];
+		$cmd = 'grep ' . escapeshellarg( $pattern ) . ' ' . escapeshellarg( $this->_config['queue_joblog'] ) . ' 2>/dev/null || echo ' . escapeshellarg( $uid ) . ' >> ' . escapeshellarg( $this->_config['queue_joblog'] );
 		exec( $cmd, $output );
 		return count( $output ) === 0;
 	}
@@ -239,7 +240,7 @@ class FileQueue
 	{
 		$output = array();
 		$pattern = '/^' . preg_quote( $uid ) . '$/d';
-		$cmd = 'sed -i ' . escapeshellarg( $pattern ) . ' ' . $this->_config['queue_joblog'];
+		$cmd = 'sed -i ' . escapeshellarg( $pattern ) . ' ' . escapeshellarg( $this->_config['queue_joblog'] );
 		exec( $cmd, $output );
 		return true;
 	}
