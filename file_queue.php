@@ -2,18 +2,15 @@
 
 define( 'FILEQUEUE_SCRIPT_PATH', realpath( dirname( __FILE__ ) ) . DIRECTORY_SEPARATOR );
 define( 'FILEQUEUE_QUEUE_PATH', FILEQUEUE_SCRIPT_PATH . 'queue' . DIRECTORY_SEPARATOR );
-define( 'FILEQUEUE_QUEUE_COMPLETE_PATH', FILEQUEUE_QUEUE_PATH . 'completed' . DIRECTORY_SEPARATOR );
-define( 'FILEQUEUE_QUEUE_WORKING_PATH', FILEQUEUE_QUEUE_PATH . 'working' . DIRECTORY_SEPARATOR );
-define( 'FILEQUEUE_QUEUE_ARCHIVE_PATH', FILEQUEUE_QUEUE_PATH . 'archive' . DIRECTORY_SEPARATOR );
 define( 'FILEQUEUE_QUEUE_JOBLOG', FILEQUEUE_QUEUE_PATH . '.jlog' );
 
 class FileQueue
 {
 	protected $_defaults = array(
 		'queue_path' => FILEQUEUE_QUEUE_PATH,
-		'queue_working_path' => FILEQUEUE_QUEUE_WORKING_PATH,
-		'queue_completed_path' => FILEQUEUE_QUEUE_COMPLETE_PATH,
-		'queue_archive_path' => FILEQUEUE_QUEUE_ARCHIVE_PATH,
+		'queue_working_path' => '%QPATH%/working/',
+		'queue_complete_path' => '%QPATH%/complete/',
+		'queue_archive_path' => '%QPATH%/archive/',
 		'queue_file_format' => '%s',
 		'queue_joblog' => FILEQUEUE_QUEUE_JOBLOG
 	);
@@ -23,7 +20,7 @@ class FileQueue
 	protected static $_pathTypes = array(
 		'base',
 		'working',
-		'completed',
+		'complete',
 		'archive'
 	);
 
@@ -37,20 +34,31 @@ class FileQueue
 			throw new InvalidArgumentException( '$config must be an array' );
 		}
 
-		$this->_config = $config !== null ? array_merge( $this->_defaults, $config ) : $this->_defaults;
+		$this->config( $config );
 
-		foreach( $this->qpaths() as $p ) {
-			if (! is_dir( $p ) && ! $this->_mkdir( $p )) {
-				throw new RuntimeException( "Could not create queue path '$p', check permissions" );
+		foreach( $this->qpaths() as $path ) {
+			if (! is_dir( $path ) && ! $this->_mkdir( $path )) {
+				throw new RuntimeException( "Could not create queue path '$path', check permissions" );
 			}
 
-			if (! is_writable( $p )) {
-				throw new RuntimeException( "Queue path '$p' is not writable, check permissions" );
+			if (! is_writable( $path )) {
+				throw new RuntimeException( "Queue path '$path' is not writable, check permissions" );
 			}
 		}
 
 		if (! is_file( $this->_config['queue_joblog'] ) && false === @touch( $this->_config['queue_joblog'] )) {
 			throw new RuntimeException( "Failed to create job log file '{$this->_config['queue_joblog']}'" );
+		}
+	}
+
+
+	public function config( $config = null )
+	{
+		$this->_config = $config !== null ? array_merge( $this->_defaults, $config ) : $this->_defaults;
+		foreach( self::$_pathTypes as $ptype ) {
+			$path = & $this->_config[$this->_qname( $ptype )];
+			$path = rtrim( $path, DIRECTORY_SEPARATOR ) . DIRECTORY_SEPARATOR;
+			$path = str_replace( '%QPATH%', rtrim( $this->qpath( 'base' ), DIRECTORY_SEPARATOR ), $path );
 		}
 	}
 
@@ -115,7 +123,7 @@ class FileQueue
 		}
 
 		$qfile = $this->_qfilename( $uid );
-		$qcfile = $this->_qfilename( $uid, 'completed' );
+		$qcfile = $this->_qfilename( $uid, 'complete' );
 		$qwfile = $this->_qfilename( $uid, 'working' );
 
 		if ($working || $this->_rename( $qfile, $qwfile )) {
@@ -164,18 +172,22 @@ class FileQueue
 
 	public function qpath( $type = null )
 	{
-		if (! in_array( $type, self::$_pathTypes, true ) || $type === 'base') {
-			$path = $this->_config['queue_path'];
-		} else {
-			$path = $this->_config['queue_' . $type . '_path'];
-		}
-		return $path;
+		return $this->_config[$this->_qname( $type )];
 	}
 
 
 	public function qpaths()
 	{
-		return array_map( array( $this, 'qpath' ), self::$_pathTypes );
+		$paths = array();
+		foreach( self::$_pathTypes as $p) {
+			$paths[$p] = $this->qpath( $p );
+		}
+		return $paths;
+	}
+
+	protected function _qname( $type = null )
+	{
+		return ! in_array( $type, self::$_pathTypes, true ) || $type === 'base' ? 'queue_path' : 'queue_' . $type . '_path';
 	}
 
 
