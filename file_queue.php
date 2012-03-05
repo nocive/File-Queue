@@ -3,7 +3,7 @@
 define( 'FILEQUEUE_SCRIPT_PATH', realpath( dirname( __FILE__ ) ) . '/' );
 define( 'FILEQUEUE_QUEUE_PATH', FILEQUEUE_SCRIPT_PATH . 'queue/' );
 
-class FileQueue
+class FileQueue extends FileQueueBase
 {
 	const CFG_PATH_BASE = 'queue_path';
 	const CFG_PATH_WORKING = 'queue_working_path';
@@ -38,19 +38,18 @@ class FileQueue
 	);
 
 	protected $_config;
+	protected $_joblog;
 
-	const DIR_MODE = 0775;
-	const FILE_MODE = 0666;
 
 
 	public function __construct( $config = null )
 	{
-		if ($config !== null && ! is_array( $config )) {
-			throw new InvalidArgumentException( '$config must be an array' );
-		}
-
 		if (strtoupper( substr( PHP_OS, 0, 3 ) ) === 'WIN') {
 			throw new RuntimeException( 'This class is only meant to be run on *nix systems' );
+		}
+
+		if ($config !== null && ! is_array( $config )) {
+			throw new InvalidArgumentException( '$config must be an array' );
 		}
 
 		$this->config( $config );
@@ -65,12 +64,8 @@ class FileQueue
 			}
 		}
 
-		if (! is_file( $this->_config[self::CFG_JOBLOG] )) {
-			if (false === @touch( $this->_config[self::CFG_JOBLOG] )) {
-				throw new RuntimeException( "Failed to create job log file '{$this->_config[self::CFG_JOBLOG]}'" );
-			}
-			@chmod( $this->_config[self::CFG_JOBLOG], self::FILE_MODE );
-		}
+		$jobclass = self::CLASS_JOBLOG;
+		$this->_joblog = new $jobclass( $this->_config[self::CFG_JOBLOG] );
 	}
 
 
@@ -112,7 +107,7 @@ class FileQueue
 		// get flat files only ordered by modification time and limited by $limit
 		// i rather exec() my way through this than using native php code
 		// grep -m $limit was necessary to fix Broken pipe grep errors when combined with head
-		$cmd = 'ls -tr1p ' . escapeshellarg( $this->qpath() ) . " 2>/dev/null | grep -v -m $limit /\\$ | head -n $limit";
+		$cmd = 'ls -tr1p ' . escapeshellarg( $this->path() ) . " 2>/dev/null | grep -v -m $limit /\\$ | head -n $limit";
 		exec( $cmd, $output );
 		return $output;
 	}
@@ -128,7 +123,30 @@ class FileQueue
 	}
 
 
-	public function add( $uid, $payload, $dispatch = false )
+
+	public function add( $id, $payload = null, $enqueue = false )
+	{
+		if (! $this->_joblog->addnx( $id )) {
+			// failed to add job to job log, probably because a job with that id already exists
+			return -1;
+		}
+
+		$jfilename = $this->_filename( $this->_config[self::CFG_PATH_TMP], $id );
+		$jobclass = self::CLASS_JOB;
+		$job = new $jobclass( $id, $payload );
+		if (! $job->store( $jfilename )) {
+			$this->_joblog()->remove( $id );
+			return -1;
+		}
+
+		if ($enqueue) {
+			// TODO $job->move( $queue_working_directory ) === true
+		}
+		return true;
+	}
+
+
+	/*public function add( $uid, $payload, $dispatch = false )
 	{
 		$qfilename = $this->_qfilename( $uid );
 		if ($dispatch !== false) {
@@ -193,67 +211,31 @@ class FileQueue
 			return $status;
 		}
 		return -1;
-	}
+	}*/
 
 
-	public function remove( $uid )
+	/*public function remove( $uid )
 	{
 		if (@unlink( $this->_qfilename( $uid ) )) {
 			$this->_jlogremove( $uid );
 			return true;
 		}
 		return false;
-	}
-
-	
-	public function exists( $uid, $path = null )
-	{
-		return file_exists( $this->_qfilename( $uid, $path ) );
-	}
-
-
-/*	public function qpath( $type = null )
-	{
-		return $this->_config[$this->_qname( $type )];
-	}
-
-
-	public function qpaths()
-	{
-		$paths = array();
-		foreach( self::$_pathTypes as $p) {
-			$paths[$p] = $this->qpath( $p );
-		}
-		return $paths;
-	}
-
-	protected function _qname( $type = null )
-	{
-		return ! in_array( $type, self::$_pathTypes, true ) || $type === 'base' ? 'queue_path' : 'queue_' . $type . '_path';
-	}
-
-
-	protected function _qfilename( $uid, $path = null )
-	{
-		return $this->qpath( $path ) . sprintf( $this->_config['queue_file_format'], $uid );
 	}*/
 
-
-	protected function _pack( $data )
+	
+	/*public function exists( $uid, $path = null )
 	{
-		if (false === ($data = serialize( $data ))) {
-			throw new Exception( 'Error encoding data' );
-		}
-		return $data;
-	}
+		return file_exists( $this->_qfilename( $uid, $path ) );
+	}*/
 
-
-	protected function _unpack( $data )
+	protected function _filename( $path, $job )
 	{
-		if (false === ($data = unserialize( $data ))) {
-			throw new Exception( 'Error decoding data' );
+		$job = $this->_isJob( $job ) ? $job->id() : $job;
+		if (! is_string( $job )) {
+			throw new InvalidArgumentException( '$job must be either a string or a job object' );
 		}
-		return $data;
+		return $path . sprintf( $this->_config[self::CFG_FILE_FORMAT], $job );
 	}
 
 
@@ -278,33 +260,44 @@ class FileQueue
 		umask( $old );
 		return $status;
 	}
-
-
-	protected function _jlogaddnx( $uid )
-	{
-		$output = array();
-		$pattern = '^' . preg_quote( $uid ) . '$';
-		$cmd = 'grep ' . escapeshellarg( $pattern ) . ' ' . escapeshellarg( $this->_config['queue_joblog'] ) . ' 2>/dev/null || echo ' . escapeshellarg( $uid ) . ' >> ' . escapeshellarg( $this->_config['queue_joblog'] );
-		exec( $cmd, $output );
-		return count( $output ) === 0;
-	}
-
-
-	protected function _jlogremove( $uid )
-	{
-		$output = array();
-		$pattern = '/^' . preg_quote( $uid ) . '$/d';
-		$cmd = 'sed -i ' . escapeshellarg( $pattern ) . ' ' . escapeshellarg( $this->_config['queue_joblog'] );
-		exec( $cmd, $output );
-		return true;
-	}
 }
 
 
-class FileQueueJob
+class FileQueueJob extends FileQueueBase
 {
-	public function create()
+	public $id;
+	public $payload;
+	public $file;
+
+	protected $_lockh;
+
+	public function __construct( $id, $payload = null, $file = null )
 	{
+		$this->id = $id;
+		$this->payload = $payload;
+
+		if ($file !== null) {
+			
+		}
+	}
+
+	public function id()
+	{
+		if (func_num_args() === 0) {
+			return $this->id;
+		}
+
+		$this->id = func_get_arg( 0 );
+	}
+
+
+	public function payload()
+	{
+		if (func_num_args() === 0) {
+			return $this->payload;
+		}
+
+		$this->payload = func_get_arg( 0 );
 	}
 
 
@@ -321,23 +314,120 @@ class FileQueueJob
 	public function remove()
 	{
 	}
+
+
+	public function store( $file )
+	{
+		return false !== @file_put_contents( $file, $this->_pack() );
+	}
+
+
+	public function move( $dest )
+	{
+	}
+
+
+	protected function _pack()
+	{
+		if (false === ($data = serialize( $this->payload ))) {
+			throw new Exception( 'Error encoding data' );
+		}
+		return $data;
+	}
+
+
+	protected function _unpack()
+	{
+		if (false === ($data = unserialize( $this->payload ))) {
+			throw new Exception( 'Error decoding data' );
+		}
+		return $data;
+	}
+
+
+	public function lock()
+	{
+		if (is_resource( $this->_lockh)) {
+			// already locked in this instance
+			return false;
+		}
+		return false !== ($this->_lockh = @fopen( $this->file, 'x' ));
+	}
+
+
+	public function unlock()
+	{
+	}
 }
 
 
-class FileQueueJobLog
+class FileQueueJobLog extends FileQueueBase
 {
-	public function addnx()
+	public $file;
+
+
+	public function __construct( $file )
 	{
+		if (empty( $file )) {
+			throw new InvalidArgumentException( '$file cannot be empty' );
+		}
+
+		if (! is_file( $file )) {
+			if (! @touch( $file )) {
+				throw new RuntimeException( "Could not touch joblog file '$file'" );
+			}
+			@chmod( $this->file, self::FILE_MODE );
+		}
+		$this->file = $file;
+	}
+
+	public function addnx( $job )
+	{
+		$job = $this->_isJob( $job ) ? $job->id() : $job;
+		if (! is_string( $job )) {
+			throw new InvalidArgumentException( '$job must be either a string or a job object' );
+		}
+
+		$output = array();
+		$pattern = '^' . preg_quote( $job ) . '$';
+		$cmd = 'grep ' . escapeshellarg( $pattern ) . ' ' . escapeshellarg( $this->file ) . ' 2>/dev/null || echo ' . escapeshellarg( $job ) . ' >> ' . escapeshellarg( $this->file );
+		exec( $cmd, $output );
+		return count( $output ) === 0;
 	}
 
 
-	public function remove()
+	public function remove( $job )
 	{
+		$job = $this->_isJob( $job ) ? $job->id() : $job;
+		if (! is_string( $job )) {
+			throw new InvalidArgumentException( '$job must be either a string or a job object' );
+		}
+
+		$output = array();
+		$pattern = '/^' . preg_quote( $uid ) . '$/d';
+		$cmd = 'sed -i ' . escapeshellarg( $pattern ) . ' ' . escapeshellarg( $this->file );
+		exec( $cmd, $output );
+		return true;
 	}
 
 
-	public function exists()
+	public function exists( $job )
 	{
+	}
+}
+
+class FileQueueBase
+{
+	const DIR_MODE = 0775;
+	const FILE_MODE = 0666;
+	const CLASS_JOB = 'FileQueueJob';
+	const CLASS_JOBLOG = 'FileQueueJobLog';
+
+
+	protected function _isJob( $job )
+	{
+		$jobclass = self::CLASS_JOB;
+		return $job instanceof $jobclass;
 	}
 }
 
