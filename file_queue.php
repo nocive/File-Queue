@@ -1,7 +1,9 @@
 <?php
 
 define( 'FILEQUEUE_SCRIPT_PATH', realpath( dirname( __FILE__ ) ) . '/' );
-define( 'FILEQUEUE_QUEUE_PATH', FILEQUEUE_SCRIPT_PATH . 'queue/' );
+if (! defined( 'FILEQUEUE_QUEUE_PATH' )) {
+	define( 'FILEQUEUE_QUEUE_PATH', FILEQUEUE_SCRIPT_PATH . 'queue/' );
+}
 
 class FileQueue extends FileQueueBase
 {
@@ -276,9 +278,9 @@ class FileQueueJob extends FileQueueBase
 		$this->id = $id;
 		$this->payload = $payload;
 
-		if ($file !== null) {
+		/*if ($file !== null) {
 			
-		}
+		}*/
 	}
 
 	public function id()
@@ -313,12 +315,19 @@ class FileQueueJob extends FileQueueBase
 
 	public function remove()
 	{
+		if ($this->file) {
+			return @unlink( $this->file );
+		}
+		return false;
 	}
 
 
 	public function store( $file )
 	{
-		return false !== @file_put_contents( $file, $this->_pack() );
+		if (false !== ($status = @file_put_contents( $file, $this->_pack() ))) {
+			@chmod( $file, self::FILE_MODE );
+		}
+		return $status;
 	}
 
 
@@ -347,11 +356,11 @@ class FileQueueJob extends FileQueueBase
 
 	public function lock()
 	{
-		if (is_resource( $this->_lockh)) {
+		/*if (is_resource( $this->_lockh)) {
 			// already locked in this instance
 			return false;
 		}
-		return false !== ($this->_lockh = @fopen( $this->file, 'x' ));
+		return false !== ($this->_lockh = @fopen( $this->file, 'x' ));*/
 	}
 
 
