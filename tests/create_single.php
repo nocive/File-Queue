@@ -1,6 +1,6 @@
 <?php
 
-require_once( 'file_queue.php' );
+require_once( '../file_queue.php' );
 
 echo "wid: " . uniqid( true );
 

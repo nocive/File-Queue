@@ -1,28 +1,43 @@
 <?php
 
-define( 'FILEQUEUE_SCRIPT_PATH', realpath( dirname( __FILE__ ) ) . DIRECTORY_SEPARATOR );
-define( 'FILEQUEUE_QUEUE_PATH', FILEQUEUE_SCRIPT_PATH . 'queue' . DIRECTORY_SEPARATOR );
-define( 'FILEQUEUE_QUEUE_JOBLOG', FILEQUEUE_QUEUE_PATH . '.jlog' );
+define( 'FILEQUEUE_SCRIPT_PATH', realpath( dirname( __FILE__ ) ) . '/' );
+define( 'FILEQUEUE_QUEUE_PATH', FILEQUEUE_SCRIPT_PATH . 'queue/' );
 
 class FileQueue
 {
-	protected $_defaults = array(
-		'queue_path' => FILEQUEUE_QUEUE_PATH,
-		'queue_working_path' => '%QPATH%/working/',
-		'queue_complete_path' => '%QPATH%/complete/',
-		'queue_archive_path' => '%QPATH%/archive/',
-		'queue_file_format' => '%s',
-		'queue_joblog' => FILEQUEUE_QUEUE_JOBLOG
+	const CFG_PATH_BASE = 'queue_path';
+	const CFG_PATH_WORKING = 'queue_working_path';
+	const CFG_PATH_COMPLETE = 'queue_complete_path';
+	const CFG_PATH_ARCHIVE = 'queue_archive_path';
+	const CFG_PATH_TMP = 'queue_tmp_path';
+	const CFG_FILE_FORMAT = 'queue_file_format';
+	const CFG_JOBLOG = 'queue_joblog';
+
+	const PATH_BASE = 'base';
+	const PATH_WORKING = 'working';
+	const PATH_COMPLETE = 'complete';
+	const PATH_ARCHIVE = 'archive';
+	const PATH_TMP = 'tmp';
+
+	protected static $_defaults = array(
+		self::CFG_PATH_BASE => FILEQUEUE_QUEUE_PATH,
+		self::CFG_PATH_WORKING => '%QPATH%/working/',
+		self::CFG_PATH_COMPLETE => '%QPATH%/complete/',
+		self::CFG_PATH_ARCHIVE => '%QPATH%/archive/',
+		self::CFG_PATH_TMP => '%QPATH%/tmp/',
+		self::CFG_JOBLOG => '%QPATH%/.jlog',
+		self::CFG_FILE_FORMAT => '%s'
+	);
+
+	protected static $_paths = array(
+		self::PATH_BASE => self::CFG_PATH_BASE,
+		self::PATH_WORKING => self::CFG_PATH_WORKING,
+		self::PATH_COMPLETE => self::CFG_PATH_COMPLETE,
+		self::PATH_ARCHIVE => self::CFG_PATH_ARCHIVE,
+		self::PATH_TMP => self::CFG_PATH_TMP
 	);
 
 	protected $_config;
-
-	protected static $_pathTypes = array(
-		'base',
-		'working',
-		'complete',
-		'archive'
-	);
 
 	const DIR_MODE = 0775;
 	const FILE_MODE = 0666;
@@ -34,9 +49,13 @@ class FileQueue
 			throw new InvalidArgumentException( '$config must be an array' );
 		}
 
+		if (strtoupper( substr( PHP_OS, 0, 3 ) ) === 'WIN') {
+			throw new RuntimeException( 'This class is only meant to be run on *nix systems' );
+		}
+
 		$this->config( $config );
 
-		foreach( $this->qpaths() as $path ) {
+		foreach( $this->paths() as $path ) {
 			if (! is_dir( $path ) && ! $this->_mkdir( $path )) {
 				throw new RuntimeException( "Could not create queue path '$path', check permissions" );
 			}
@@ -46,20 +65,43 @@ class FileQueue
 			}
 		}
 
-		if (! is_file( $this->_config['queue_joblog'] ) && false === @touch( $this->_config['queue_joblog'] )) {
-			throw new RuntimeException( "Failed to create job log file '{$this->_config['queue_joblog']}'" );
+		if (! is_file( $this->_config[self::CFG_JOBLOG] )) {
+			if (false === @touch( $this->_config[self::CFG_JOBLOG] )) {
+				throw new RuntimeException( "Failed to create job log file '{$this->_config[self::CFG_JOBLOG]}'" );
+			}
+			@chmod( $this->_config[self::CFG_JOBLOG], self::FILE_MODE );
 		}
+	}
+
+
+	public function path( $type = self::PATH_BASE )
+	{
+		if (array_key_exists( $type, self::$_paths ) && isset( $this->_config[self::$_paths[$type]] )) {
+			return $this->_config[self::$_paths[$type]];
+		}
+		return false;
+	}
+
+
+	public function paths()
+	{
+		$paths = array();
+		foreach( self::$_paths as $ptype => $ptypecfg ) {
+			$paths[$ptype] = $this->path( $ptype );
+		}
+		return $paths;
 	}
 
 
 	public function config( $config = null )
 	{
-		$this->_config = $config !== null ? array_merge( $this->_defaults, $config ) : $this->_defaults;
-		foreach( self::$_pathTypes as $ptype ) {
-			$path = & $this->_config[$this->_qname( $ptype )];
-			$path = rtrim( $path, DIRECTORY_SEPARATOR ) . DIRECTORY_SEPARATOR;
-			$path = str_replace( '%QPATH%', rtrim( $this->qpath( 'base' ), DIRECTORY_SEPARATOR ), $path );
+		$this->_config = $config !== null ? array_merge( self::$_defaults, $config ) : self::$_defaults;
+		foreach( self::$_paths as $ptype => $ptypecfg ) {
+			$path = & $this->_config[$ptypecfg];
+			$path = rtrim( $path, '/' ) . '/';
+			$path = str_replace( '%QPATH%', rtrim( $this->path(), '/' ), $path );
 		}
+		$this->_config[self::CFG_JOBLOG] = str_replace( '%QPATH%', rtrim( $this->path(), '/' ), $this->_config[self::CFG_JOBLOG] );
 	}
 
 
@@ -170,7 +212,7 @@ class FileQueue
 	}
 
 
-	public function qpath( $type = null )
+/*	public function qpath( $type = null )
 	{
 		return $this->_config[$this->_qname( $type )];
 	}
@@ -194,7 +236,7 @@ class FileQueue
 	protected function _qfilename( $uid, $path = null )
 	{
 		return $this->qpath( $path ) . sprintf( $this->_config['queue_file_format'], $uid );
-	}
+	}*/
 
 
 	protected function _pack( $data )
@@ -255,6 +297,47 @@ class FileQueue
 		$cmd = 'sed -i ' . escapeshellarg( $pattern ) . ' ' . escapeshellarg( $this->_config['queue_joblog'] );
 		exec( $cmd, $output );
 		return true;
+	}
+}
+
+
+class FileQueueJob
+{
+	public function create()
+	{
+	}
+
+
+	public function enqueue()
+	{
+	}
+
+
+	public function dispatch()
+	{
+	}
+
+
+	public function remove()
+	{
+	}
+}
+
+
+class FileQueueJobLog
+{
+	public function addnx()
+	{
+	}
+
+
+	public function remove()
+	{
+	}
+
+
+	public function exists()
+	{
 	}
 }
 
