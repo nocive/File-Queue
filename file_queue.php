@@ -80,9 +80,9 @@ class FileQueueConfig extends FileQueueBase
 		foreach ( $vars as $var => $value ) {
 			if (array_key_exists( $var, self::$_defaults )) {
 				if (in_array( $var, self::$_paths, true )) {
-					$value = str_replace( '%QPATH%', rtrim( $this->path(), '/' ), rtrim( $value, '/' ) . '/' );
+					$value = str_replace( '%QPATH%', rtrim( $this->_config[self::CFG_PATH_BASE], '/' ), rtrim( $value, '/' ) . '/' );
 				} elseif ($var === self::CFG_JOBLOG) {
-					$value = str_replace( '%QPATH%', rtrim( $this->path(), '/' ), $value );
+					$value = str_replace( '%QPATH%', rtrim( $this->_config[self::CFG_PATH_BASE], '/' ), $value );
 				}
 				$this->_config[$var] = $value;
 			}
@@ -107,12 +107,21 @@ class FileQueueConfig extends FileQueueBase
 		}
 		return $paths;
 	}
+
+
+	public function reset()
+	{
+		$this->set( self::$_defaults );
+	}
 }
 
 class FileQueue extends FileQueueBase
 {
-	
-	protected $_config;
+	/**
+	 * @var FileQueueConfig
+	 * @access public
+	 */
+	public $config;
 	
 	/**
 	 * @var FileQueueJobLog
@@ -131,9 +140,13 @@ class FileQueue extends FileQueueBase
 			throw new InvalidArgumentException( '$config must be an array' );
 		}
 		
-		$this->config( $config );
+		$cfgclass = self::CLASS_CONFIG;
+		$this->config = new $cfgclass( $config );
+
+		$jobclass = self::CLASS_JOBLOG;
+		$this->_joblog = new $jobclass( $this->_config[self::CFG_JOBLOG] );
 		
-		foreach ( $this->paths() as $path ) {
+		foreach ( $this->config->paths() as $path ) {
 			if (! is_dir( $path ) && ! $this->_mkdir( $path )) {
 				throw new RuntimeException( "Could not create queue path '$path', check permissions" );
 			}
@@ -143,40 +156,13 @@ class FileQueue extends FileQueueBase
 			}
 		}
 		
-		$jobclass = self::CLASS_JOBLOG;
-		$this->_joblog = new $jobclass( $this->_config[self::CFG_JOBLOG] );
-	}
-
-
-	/*public function path( $type = self::PATH_BASE )
-	{
-		if (array_key_exists( $type, self::$_paths ) && isset( $this->_config[self::$_paths[$type]] )) {
-			return $this->_config[self::$_paths[$type]];
-		}
-		return false;
-	}
-
-
-	public function paths()
-	{
-		$paths = array();
-		foreach ( self::$_paths as $ptype => $ptypecfg ) {
-			$paths[$ptype] = $this->path( $ptype );
-		}
-		return $paths;
 	}
 
 
 	public function config( $config = null )
 	{
-		$this->_config = $config !== null ? array_merge( self::$_defaults, $config ) : self::$_defaults;
-		foreach ( self::$_paths as $ptype => $ptypecfg ) {
-			$path = & $this->_config[$ptypecfg];
-			$path = rtrim( $path, '/' ) . '/';
-			$path = str_replace( '%QPATH%', rtrim( $this->path(), '/' ), $path );
-		}
-		$this->_config[self::CFG_JOBLOG] = str_replace( '%QPATH%', rtrim( $this->path(), '/' ), $this->_config[self::CFG_JOBLOG] );
-	}*/
+		$this->config->set( $config );
+	}
 	
 	public function work( $limit = 10 )
 	{
@@ -185,7 +171,7 @@ class FileQueue extends FileQueueBase
 		// get flat files only ordered by modification time and limited by $limit
 		// i rather exec() my way through this than using native php code
 		// grep -m $limit was necessary to fix Broken pipe grep errors when combined with head
-		$cmd = 'ls -tr1p ' . escapeshellarg( $this->path() ) . " 2>/dev/null | grep -v -m $limit /\\$ | head -n $limit";
+		$cmd = 'ls -tr1p ' . escapeshellarg( $this->_config->path() ) . " 2>/dev/null | grep -v -m $limit /\\$ | head -n $limit";
 		exec( $cmd, $output );
 		return $output;
 	}
@@ -208,7 +194,7 @@ class FileQueue extends FileQueueBase
 			return - 1;
 		}
 		
-		$jfilename = $this->_filename( $this->_config[self::CFG_PATH_TMP], $id );
+		//$jfilename = $this->_filename( $this->_config[self::CFG_PATH_TMP], $id );
 		$jobclass = self::CLASS_JOB;
 		$job = new $jobclass( $id, $payload );
 		if (! $job->store( $jfilename )) {
@@ -348,7 +334,7 @@ class FileQueueJob extends FileQueueBase
 	//protected $_lockh;
 	
 
-	public function __construct( &$config, $id, $payload = null, $file = null )
+	public function __construct( $config, $id, $payload = null, $file = null )
 	{
 		$this->id = $id;
 		$this->payload = $payload;
@@ -458,7 +444,7 @@ class FileQueueJobLog extends FileQueueBase
 		
 		if (! is_file( $file )) {
 			if (! @touch( $file )) {
-				throw new RuntimeException( "Could not touch joblog file '$file'" );
+				throw new RuntimeException( "Could not create joblog file '$file'" );
 			}
 			@chmod( $this->file, self::FILE_MODE );
 		}
@@ -517,10 +503,12 @@ class FileQueueBase
 	const PATH_ARCHIVE = 'archive';
 	const PATH_TMP = 'tmp';
 	
-	const DIR_MODE = 0775;
-	const FILE_MODE = 0666;
 	const CLASS_JOB = 'FileQueueJob';
 	const CLASS_JOBLOG = 'FileQueueJobLog';
+	const CLASS_CONFIG = 'FileQueueConfig';
+
+	const DIR_MODE = 0775;
+	const FILE_MODE = 0666;
 
 
 	protected function _isJob( $job )

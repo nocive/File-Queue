@@ -6,6 +6,8 @@ require_once( realpath( dirname( __FILE__ ) . '/..' ) . '/file_queue.php' );
 $config = new FileQueueConfig();
 
 var_dump($config);
+var_dump($config->path());
+var_dump($config->paths());
 
 
 ?>
