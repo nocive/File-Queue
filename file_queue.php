@@ -5,69 +5,88 @@ if (! defined( 'FILEQUEUE_QUEUE_PATH' )) {
 	define( 'FILEQUEUE_QUEUE_PATH', FILEQUEUE_SCRIPT_PATH . 'queue/' );
 }
 
-class FileQueue extends FileQueueBase
+class FileQueueConfig extends FileQueueBase
 {
-	const CFG_PATH_BASE = 'queue_path';
-	const CFG_PATH_WORKING = 'queue_working_path';
-	const CFG_PATH_COMPLETE = 'queue_complete_path';
-	const CFG_PATH_ARCHIVE = 'queue_archive_path';
-	const CFG_PATH_TMP = 'queue_tmp_path';
-	const CFG_FILE_FORMAT = 'queue_file_format';
-	const CFG_JOBLOG = 'queue_joblog';
-
-	const PATH_BASE = 'base';
-	const PATH_WORKING = 'working';
-	const PATH_COMPLETE = 'complete';
-	const PATH_ARCHIVE = 'archive';
-	const PATH_TMP = 'tmp';
-
-	protected static $_defaults = array(
-		self::CFG_PATH_BASE => FILEQUEUE_QUEUE_PATH,
-		self::CFG_PATH_WORKING => '%QPATH%/working/',
-		self::CFG_PATH_COMPLETE => '%QPATH%/complete/',
-		self::CFG_PATH_ARCHIVE => '%QPATH%/archive/',
-		self::CFG_PATH_TMP => '%QPATH%/tmp/',
-		self::CFG_JOBLOG => '%QPATH%/.jlog',
-		self::CFG_FILE_FORMAT => '%s'
+	protected $_config = array();
+	
+	protected static $_defaults = array( 
+		self::CFG_PATH_BASE => FILEQUEUE_QUEUE_PATH, 
+		self::CFG_PATH_WORKING => '%QPATH%/working/', 
+		self::CFG_PATH_COMPLETE => '%QPATH%/complete/', 
+		self::CFG_PATH_ARCHIVE => '%QPATH%/archive/', 
+		self::CFG_PATH_TMP => '%QPATH%/tmp/', 
+		self::CFG_JOBLOG => '%QPATH%/.jlog', 
+		self::CFG_FILE_FORMAT => '%s' 
+	);
+	
+	protected static $_paths = array( 
+		self::PATH_BASE => self::CFG_PATH_BASE, 
+		self::PATH_WORKING => self::CFG_PATH_WORKING, 
+		self::PATH_COMPLETE => self::CFG_PATH_COMPLETE, 
+		self::PATH_ARCHIVE => self::CFG_PATH_ARCHIVE, 
+		self::PATH_TMP => self::CFG_PATH_TMP 
 	);
 
-	protected static $_paths = array(
-		self::PATH_BASE => self::CFG_PATH_BASE,
-		self::PATH_WORKING => self::CFG_PATH_WORKING,
-		self::PATH_COMPLETE => self::CFG_PATH_COMPLETE,
-		self::PATH_ARCHIVE => self::CFG_PATH_ARCHIVE,
-		self::PATH_TMP => self::CFG_PATH_TMP
-	);
 
-	protected $_config;
-	protected $_joblog;
-
-
-
-	public function __construct( $config = null )
+	public function __construct( $cfg = null )
 	{
-		if (strtoupper( substr( PHP_OS, 0, 3 ) ) === 'WIN') {
-			throw new RuntimeException( 'This class is only meant to be run on *nix systems' );
+		$cfg = $cfg !== null ? array_merge( self::$_defaults, $cfg ) : self::$_defaults;
+		$this->set( $cfg );
+	}
+
+
+	public function get()
+	{
+		if (func_num_args() === 0) {
+			throw new InvalidArgumentException( 'Wrong number of arguments' );
 		}
-
-		if ($config !== null && ! is_array( $config )) {
-			throw new InvalidArgumentException( '$config must be an array' );
-		}
-
-		$this->config( $config );
-
-		foreach( $this->paths() as $path ) {
-			if (! is_dir( $path ) && ! $this->_mkdir( $path )) {
-				throw new RuntimeException( "Could not create queue path '$path', check permissions" );
+		
+		$args = func_get_args();
+		if (func_num_args() === 1) {
+			if (is_array( $args[0] )) {
+				$args = $args[0];
+			} else {
+				return $this->_config[$args[0]];
 			}
+		}
+		
+		$return = array();
+		foreach ( $args as $a ) {
+			$return[$a] = $this->_config[$a];
+		}
+		return $return;
+	}
 
-			if (! is_writable( $path )) {
-				throw new RuntimeException( "Queue path '$path' is not writable, check permissions" );
+
+	public function set()
+	{
+		$args = func_get_args();
+		$argc = func_num_args();
+		
+		if ($argc !== 1 && $argc !== 2) {
+			throw new InvalidArgumentException( 'Wrong number of parameters' );
+		}
+		
+		if ($argc === 1 && is_array( $args[0] )) {
+			$vars = array_combine( array_keys( $args[0] ), array_values( $args[0] ) );
+		} elseif ($argc === 2) {
+			$vars = array_combine( array( 
+				$args[0] 
+			), array( 
+				$args[1] 
+			) );
+		}
+		
+		foreach ( $vars as $var => $value ) {
+			if (array_key_exists( $var, self::$_defaults )) {
+				if (in_array( $var, self::$_paths, true )) {
+					$value = str_replace( '%QPATH%', rtrim( $this->path(), '/' ), rtrim( $value, '/' ) . '/' );
+				} elseif ($var === self::CFG_JOBLOG) {
+					$value = str_replace( '%QPATH%', rtrim( $this->path(), '/' ), $value );
+				}
+				$this->_config[$var] = $value;
 			}
 		}
-
-		$jobclass = self::CLASS_JOBLOG;
-		$this->_joblog = new $jobclass( $this->_config[self::CFG_JOBLOG] );
 	}
 
 
@@ -83,7 +102,65 @@ class FileQueue extends FileQueueBase
 	public function paths()
 	{
 		$paths = array();
-		foreach( self::$_paths as $ptype => $ptypecfg ) {
+		foreach ( self::$_paths as $ptype => $ptypecfg ) {
+			$paths[$ptype] = $this->path( $ptype );
+		}
+		return $paths;
+	}
+}
+
+class FileQueue extends FileQueueBase
+{
+	
+	protected $_config;
+	
+	/**
+	 * @var FileQueueJobLog
+	 * @access protected
+	 */
+	protected $_joblog;
+
+
+	public function __construct( $config = null )
+	{
+		if (strtoupper( substr( PHP_OS, 0, 3 ) ) === 'WIN') {
+			throw new RuntimeException( 'This class is only meant to be run on *nix systems' );
+		}
+		
+		if ($config !== null && ! is_array( $config )) {
+			throw new InvalidArgumentException( '$config must be an array' );
+		}
+		
+		$this->config( $config );
+		
+		foreach ( $this->paths() as $path ) {
+			if (! is_dir( $path ) && ! $this->_mkdir( $path )) {
+				throw new RuntimeException( "Could not create queue path '$path', check permissions" );
+			}
+			
+			if (! is_writable( $path )) {
+				throw new RuntimeException( "Queue path '$path' is not writable, check permissions" );
+			}
+		}
+		
+		$jobclass = self::CLASS_JOBLOG;
+		$this->_joblog = new $jobclass( $this->_config[self::CFG_JOBLOG] );
+	}
+
+
+	/*public function path( $type = self::PATH_BASE )
+	{
+		if (array_key_exists( $type, self::$_paths ) && isset( $this->_config[self::$_paths[$type]] )) {
+			return $this->_config[self::$_paths[$type]];
+		}
+		return false;
+	}
+
+
+	public function paths()
+	{
+		$paths = array();
+		foreach ( self::$_paths as $ptype => $ptypecfg ) {
 			$paths[$ptype] = $this->path( $ptype );
 		}
 		return $paths;
@@ -93,15 +170,14 @@ class FileQueue extends FileQueueBase
 	public function config( $config = null )
 	{
 		$this->_config = $config !== null ? array_merge( self::$_defaults, $config ) : self::$_defaults;
-		foreach( self::$_paths as $ptype => $ptypecfg ) {
+		foreach ( self::$_paths as $ptype => $ptypecfg ) {
 			$path = & $this->_config[$ptypecfg];
 			$path = rtrim( $path, '/' ) . '/';
 			$path = str_replace( '%QPATH%', rtrim( $this->path(), '/' ), $path );
 		}
 		$this->_config[self::CFG_JOBLOG] = str_replace( '%QPATH%', rtrim( $this->path(), '/' ), $this->_config[self::CFG_JOBLOG] );
-	}
-
-
+	}*/
+	
 	public function work( $limit = 10 )
 	{
 		$limit = (int) $limit;
@@ -125,22 +201,21 @@ class FileQueue extends FileQueueBase
 	}
 
 
-
 	public function add( $id, $payload = null, $enqueue = false )
 	{
 		if (! $this->_joblog->addnx( $id )) {
 			// failed to add job to job log, probably because a job with that id already exists
-			return -1;
+			return - 1;
 		}
-
+		
 		$jfilename = $this->_filename( $this->_config[self::CFG_PATH_TMP], $id );
 		$jobclass = self::CLASS_JOB;
 		$job = new $jobclass( $id, $payload );
 		if (! $job->store( $jfilename )) {
 			$this->_joblog()->remove( $id );
-			return -1;
+			return - 1;
 		}
-
+		
 		if ($enqueue) {
 			// TODO $job->move( $queue_working_directory ) === true
 		}
@@ -214,8 +289,7 @@ class FileQueue extends FileQueueBase
 		}
 		return -1;
 	}*/
-
-
+	
 	/*public function remove( $uid )
 	{
 		if (@unlink( $this->_qfilename( $uid ) )) {
@@ -224,13 +298,12 @@ class FileQueue extends FileQueueBase
 		}
 		return false;
 	}*/
-
 	
 	/*public function exists( $uid, $path = null )
 	{
 		return file_exists( $this->_qfilename( $uid, $path ) );
 	}*/
-
+	
 	protected function _filename( $path, $job )
 	{
 		$job = $this->_isJob( $job ) ? $job->id() : $job;
@@ -264,31 +337,34 @@ class FileQueue extends FileQueueBase
 	}
 }
 
-
 class FileQueueJob extends FileQueueBase
 {
 	public $id;
 	public $payload;
 	public $file;
+	public $paths;
 
-	protected $_lockh;
 
-	public function __construct( $id, $payload = null, $file = null )
+	//protected $_lockh;
+	
+
+	public function __construct( &$config, $id, $payload = null, $file = null )
 	{
 		$this->id = $id;
 		$this->payload = $payload;
-
-		/*if ($file !== null) {
+		
+	/*if ($file !== null) {
 			
 		}*/
 	}
+
 
 	public function id()
 	{
 		if (func_num_args() === 0) {
 			return $this->id;
 		}
-
+		
 		$this->id = func_get_arg( 0 );
 	}
 
@@ -298,7 +374,7 @@ class FileQueueJob extends FileQueueBase
 		if (func_num_args() === 0) {
 			return $this->payload;
 		}
-
+		
 		$this->payload = func_get_arg( 0 );
 	}
 
@@ -369,7 +445,6 @@ class FileQueueJob extends FileQueueBase
 	}
 }
 
-
 class FileQueueJobLog extends FileQueueBase
 {
 	public $file;
@@ -380,7 +455,7 @@ class FileQueueJobLog extends FileQueueBase
 		if (empty( $file )) {
 			throw new InvalidArgumentException( '$file cannot be empty' );
 		}
-
+		
 		if (! is_file( $file )) {
 			if (! @touch( $file )) {
 				throw new RuntimeException( "Could not touch joblog file '$file'" );
@@ -390,13 +465,14 @@ class FileQueueJobLog extends FileQueueBase
 		$this->file = $file;
 	}
 
+
 	public function addnx( $job )
 	{
 		$job = $this->_isJob( $job ) ? $job->id() : $job;
 		if (! is_string( $job )) {
 			throw new InvalidArgumentException( '$job must be either a string or a job object' );
 		}
-
+		
 		$output = array();
 		$pattern = '^' . preg_quote( $job ) . '$';
 		$cmd = 'grep ' . escapeshellarg( $pattern ) . ' ' . escapeshellarg( $this->file ) . ' 2>/dev/null || echo ' . escapeshellarg( $job ) . ' >> ' . escapeshellarg( $this->file );
@@ -411,7 +487,7 @@ class FileQueueJobLog extends FileQueueBase
 		if (! is_string( $job )) {
 			throw new InvalidArgumentException( '$job must be either a string or a job object' );
 		}
-
+		
 		$output = array();
 		$pattern = '/^' . preg_quote( $uid ) . '$/d';
 		$cmd = 'sed -i ' . escapeshellarg( $pattern ) . ' ' . escapeshellarg( $this->file );
@@ -427,6 +503,20 @@ class FileQueueJobLog extends FileQueueBase
 
 class FileQueueBase
 {
+	const CFG_PATH_BASE = 'queue_path';
+	const CFG_PATH_WORKING = 'queue_working_path';
+	const CFG_PATH_COMPLETE = 'queue_complete_path';
+	const CFG_PATH_ARCHIVE = 'queue_archive_path';
+	const CFG_PATH_TMP = 'queue_tmp_path';
+	const CFG_FILE_FORMAT = 'queue_file_format';
+	const CFG_JOBLOG = 'queue_joblog';
+	
+	const PATH_BASE = 'base';
+	const PATH_WORKING = 'working';
+	const PATH_COMPLETE = 'complete';
+	const PATH_ARCHIVE = 'archive';
+	const PATH_TMP = 'tmp';
+	
 	const DIR_MODE = 0775;
 	const FILE_MODE = 0666;
 	const CLASS_JOB = 'FileQueueJob';
@@ -439,6 +529,5 @@ class FileQueueBase
 		return $job instanceof $jobclass;
 	}
 }
-
 
 ?>
