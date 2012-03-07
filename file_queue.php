@@ -5,22 +5,103 @@ if (! defined( 'FILEQUEUE_QUEUE_PATH' )) {
 	define( 'FILEQUEUE_QUEUE_PATH', FILEQUEUE_SCRIPT_PATH . 'queue/' );
 }
 
+
+class FileQueueBase
+{
+	const CFG_PATH_BASE = 'base_path';
+	const CFG_PATH_WORK = 'work_path';
+	const CFG_PATH_WORKING = 'working_path';
+	const CFG_PATH_COMPLETE = 'complete_path';
+	const CFG_PATH_ARCHIVE = 'archive_path';
+	const CFG_PATH_TMP = 'tmp_path';
+	const CFG_FILE_FORMAT = 'file_format';
+	const CFG_JOBLOG = 'joblog';
+	
+	const PATH_BASE = 'base';
+	const PATH_WORK = 'work';
+	const PATH_WORKING = 'working';
+	const PATH_COMPLETE = 'complete';
+	const PATH_ARCHIVE = 'archive';
+	const PATH_TMP = 'tmp';
+	
+	const CLASS_JOB = 'job';
+	const CLASS_JOBLOG = 'joblog';
+	const CLASS_CONFIG = 'config';
+
+	const DIR_MODE = 0775;
+	const FILE_MODE = 0666;
+
+	protected static $_classmap = array(
+		self::CLASS_JOB => 'FileQueueJob',
+		self::CLASS_JOBLOG => 'FileQueueJobLog',
+		self::CLASS_CONFIG => 'FileQueueConfig'
+	);
+
+	
+	public function __construct()
+	{
+	}
+
+
+	protected function _isJob( $var )
+	{
+		$jobclass = self::CLASS_JOB;
+		return $var instanceof $jobclass;
+	}
+
+
+	protected function _new( $classAlias, $args )
+	{
+		$args = func_get_args();
+		$argc = func_num_args();
+
+		if ($argc < 1) {
+			throw new InvalidArgumentException( 'Wrong number of parameters' );
+		}
+
+		$classAlias = array_shift( $args );
+		$className = isset( self::$_classmap[$classAlias] ) ? self::$_classmap[$classAlias] : null;
+
+		if (! $className) {
+			throw new InvalidArgumentException( "Invalid class alias '$classAlias'" );
+		}
+
+		switch ($argc) {
+		case 1:
+			return new $className();
+		case 2:
+			return new $className( $args[1] );
+		case 3:
+			return new $className( $args[1], $args[2] );
+		case 4:
+			return new $className( $args[1], $args[2], $args[3] );
+		case 5:
+			return new $className( $args[1], $args[2], $args[3], $args[4] );
+		default:
+			throw new InvalidArgumentException( 'Unimplemented number of parameters' );
+		}
+	}
+}
+
+
 class FileQueueConfig extends FileQueueBase
 {
 	protected $_config = array();
 	
 	protected static $_defaults = array( 
 		self::CFG_PATH_BASE => FILEQUEUE_QUEUE_PATH, 
-		self::CFG_PATH_WORKING => '%QPATH%/working/', 
-		self::CFG_PATH_COMPLETE => '%QPATH%/complete/', 
-		self::CFG_PATH_ARCHIVE => '%QPATH%/archive/', 
-		self::CFG_PATH_TMP => '%QPATH%/tmp/', 
-		self::CFG_JOBLOG => '%QPATH%/.jlog', 
+		self::CFG_PATH_WORK => '%PATH%/work/',
+		self::CFG_PATH_WORKING => '%PATH%/working/', 
+		self::CFG_PATH_COMPLETE => '%PATH%/complete/', 
+		self::CFG_PATH_ARCHIVE => '%PATH%/archive/', 
+		self::CFG_PATH_TMP => '%PATH%/tmp/', 
+		self::CFG_JOBLOG => '%PATH%/.jlog', 
 		self::CFG_FILE_FORMAT => '%s' 
 	);
 	
-	protected static $_paths = array( 
+	protected static $_pathmap = array( 
 		self::PATH_BASE => self::CFG_PATH_BASE, 
+		self::PATH_WORK => self::CFG_PATH_WORK, 
 		self::PATH_WORKING => self::CFG_PATH_WORKING, 
 		self::PATH_COMPLETE => self::CFG_PATH_COMPLETE, 
 		self::PATH_ARCHIVE => self::CFG_PATH_ARCHIVE, 
@@ -79,10 +160,12 @@ class FileQueueConfig extends FileQueueBase
 		
 		foreach ( $vars as $var => $value ) {
 			if (array_key_exists( $var, self::$_defaults )) {
-				if (in_array( $var, self::$_paths, true )) {
-					$value = str_replace( '%QPATH%', rtrim( $this->_config[self::CFG_PATH_BASE], '/' ), rtrim( $value, '/' ) . '/' );
-				} elseif ($var === self::CFG_JOBLOG) {
-					$value = str_replace( '%QPATH%', rtrim( $this->_config[self::CFG_PATH_BASE], '/' ), $value );
+				if ($var !== self::CFG_PATH_BASE) {
+					if (in_array( $var, self::$_pathmap, true )) {
+						$value = str_replace( '%PATH%', rtrim( $this->_config[self::CFG_PATH_BASE], '/' ), rtrim( $value, '/' ) . '/' );
+					} elseif ($var === self::CFG_JOBLOG) {
+						$value = str_replace( '%PATH%', rtrim( $this->_config[self::CFG_PATH_BASE], '/' ), $value );
+					}
 				}
 				$this->_config[$var] = $value;
 			}
@@ -92,8 +175,8 @@ class FileQueueConfig extends FileQueueBase
 
 	public function path( $type = self::PATH_BASE )
 	{
-		if (array_key_exists( $type, self::$_paths ) && isset( $this->_config[self::$_paths[$type]] )) {
-			return $this->_config[self::$_paths[$type]];
+		if (array_key_exists( $type, self::$_pathmap ) && isset( $this->_config[self::$_pathmap[$type]] )) {
+			return $this->_config[self::$_pathmap[$type]];
 		}
 		return false;
 	}
@@ -102,7 +185,7 @@ class FileQueueConfig extends FileQueueBase
 	public function paths()
 	{
 		$paths = array();
-		foreach ( self::$_paths as $ptype => $ptypecfg ) {
+		foreach ( self::$_pathmap as $ptype => $ptypecfg ) {
 			$paths[$ptype] = $this->path( $ptype );
 		}
 		return $paths;
@@ -114,6 +197,7 @@ class FileQueueConfig extends FileQueueBase
 		$this->set( self::$_defaults );
 	}
 }
+
 
 class FileQueue extends FileQueueBase
 {
@@ -140,11 +224,8 @@ class FileQueue extends FileQueueBase
 			throw new InvalidArgumentException( '$config must be an array' );
 		}
 		
-		$cfgclass = self::CLASS_CONFIG;
-		$this->config = new $cfgclass( $config );
-
-		$jobclass = self::CLASS_JOBLOG;
-		$this->_joblog = new $jobclass( $this->_config[self::CFG_JOBLOG] );
+		$this->config = $this->_new( self::CLASS_CONFIG, $config );
+		$this->_joblog = $this->_new( self::CLASS_JOBLOG, $this->_config[self::CFG_JOBLOG] );
 		
 		foreach ( $this->config->paths() as $path ) {
 			if (! is_dir( $path ) && ! $this->_mkdir( $path )) {
@@ -195,15 +276,14 @@ class FileQueue extends FileQueueBase
 		}
 		
 		//$jfilename = $this->_filename( $this->_config[self::CFG_PATH_TMP], $id );
-		$jobclass = self::CLASS_JOB;
-		$job = new $jobclass( $id, $payload );
-		if (! $job->store( $jfilename )) {
-			$this->_joblog()->remove( $id );
-			return - 1;
-		}
+		//$jobclass = self::CLASS_JOB;
+		//$job = new $jobclass( $id, $payload );
+		//if (! $job->store( $jfilename )) {
+		//	$this->_joblog()->remove( $id );
+		//	return - 1;
+		//}
 		
 		if ($enqueue) {
-			// TODO $job->move( $queue_working_directory ) === true
 		}
 		return true;
 	}
@@ -323,25 +403,35 @@ class FileQueue extends FileQueueBase
 	}
 }
 
+
 class FileQueueJob extends FileQueueBase
 {
+	const STATUS_ENQUEUED = 'enqueued';
+	const STATUS_WORKING = 'working';
+	const STATUS_COMPLETE = 'complete';
+	const STATUS_ARCHIVED = 'archived';
+	const STATUS_TMP = 'temporary';
+
 	public $id;
 	public $payload;
 	public $file;
-	public $paths;
-
-
-	//protected $_lockh;
+	public $status;
 	
 
-	public function __construct( $config, $id, $payload = null, $file = null )
+	public function __construct( $config, $id, $payload = null )
 	{
 		$this->id = $id;
 		$this->payload = $payload;
-		
-	/*if ($file !== null) {
-			
-		}*/
+	}
+
+
+	public function create( $payload = null )
+	{
+	}
+
+
+	public function load( $file )
+	{
 	}
 
 
@@ -371,6 +461,16 @@ class FileQueueJob extends FileQueueBase
 
 
 	public function dispatch()
+	{
+	}
+
+
+	public function complete()
+	{
+	}
+
+
+	public function archive()
 	{
 	}
 
@@ -475,7 +575,7 @@ class FileQueueJobLog extends FileQueueBase
 		}
 		
 		$output = array();
-		$pattern = '/^' . preg_quote( $uid ) . '$/d';
+		$pattern = '/^' . preg_quote( $job ) . '$/d';
 		$cmd = 'sed -i ' . escapeshellarg( $pattern ) . ' ' . escapeshellarg( $this->file );
 		exec( $cmd, $output );
 		return true;
@@ -484,37 +584,16 @@ class FileQueueJobLog extends FileQueueBase
 
 	public function exists( $job )
 	{
-	}
-}
+		$job = $this->_isJob( $job ) ? $job->id() : $job;
+		if (! is_string( $job )) {
+			throw new InvalidArgumentException( '$job must be either a string or a job object' );
+		}
 
-class FileQueueBase
-{
-	const CFG_PATH_BASE = 'queue_path';
-	const CFG_PATH_WORKING = 'queue_working_path';
-	const CFG_PATH_COMPLETE = 'queue_complete_path';
-	const CFG_PATH_ARCHIVE = 'queue_archive_path';
-	const CFG_PATH_TMP = 'queue_tmp_path';
-	const CFG_FILE_FORMAT = 'queue_file_format';
-	const CFG_JOBLOG = 'queue_joblog';
-	
-	const PATH_BASE = 'base';
-	const PATH_WORKING = 'working';
-	const PATH_COMPLETE = 'complete';
-	const PATH_ARCHIVE = 'archive';
-	const PATH_TMP = 'tmp';
-	
-	const CLASS_JOB = 'FileQueueJob';
-	const CLASS_JOBLOG = 'FileQueueJobLog';
-	const CLASS_CONFIG = 'FileQueueConfig';
-
-	const DIR_MODE = 0775;
-	const FILE_MODE = 0666;
-
-
-	protected function _isJob( $job )
-	{
-		$jobclass = self::CLASS_JOB;
-		return $job instanceof $jobclass;
+		$output = array();
+		$pattern = '/^' . preg_quote( $job ) . '$/d';
+		//$cmd = 'grep ' . escapeshellarg( $pattern ) . ' ' . escapeshellarg( $this->file );
+		//exec( $cmd, $output );
+		//return true;
 	}
 }
 
