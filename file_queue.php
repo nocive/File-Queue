@@ -501,7 +501,7 @@ class FileQueueJob extends FileQueueBase
 	protected function _pack()
 	{
 		if (false === ($data = serialize( $this->payload ))) {
-			throw new Exception( 'Error encoding data' );
+			throw new RuntimeException( 'Error encoding data' );
 		}
 		return $data;
 	}
@@ -510,7 +510,7 @@ class FileQueueJob extends FileQueueBase
 	protected function _unpack()
 	{
 		if (false === ($data = unserialize( $this->payload ))) {
-			throw new Exception( 'Error decoding data' );
+			throw new RuntimeException( 'Error decoding data' );
 		}
 		return $data;
 	}
