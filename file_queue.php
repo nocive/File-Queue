@@ -550,11 +550,11 @@ class FileQueueJob extends FileQueueBase
 			throw new InvalidArgumentException( '$callback must be a valid callable resource' );
 		}
 		
-		if ($this->_status === self::STATUS_WORKING) {
+		if ($this->_status !== self::STATUS_WORK) {
 			return - 1;
 		}
 		
-		if ($this->move( self::PATH_WORKING )) {
+		if ($this->_move( self::PATH_WORKING )) {
 			$payload = $this->payload();
 			if (true === $callback( $this->id(), &$payload )) {
 				$action = 'complete';
@@ -579,8 +579,8 @@ class FileQueueJob extends FileQueueBase
 
 	public function enqueue()
 	{
-		if ($this->_valid && $this->_status !== self::STATUS_WORK) {
-			if (false !== ($status = $this->move( self::PATH_WORK ))) {
+		if ($this->valid() && $this->_status !== self::STATUS_WORK) {
+			if (false !== ($status = $this->_move( self::PATH_WORK ))) {
 				$this->_status = self::STATUS_WORK;
 			}
 			return $status;
@@ -591,8 +591,8 @@ class FileQueueJob extends FileQueueBase
 
 	public function complete()
 	{
-		if ($this->_valid && $this->_status !== self::STATUS_COMPLETE) {
-			if (false !== ($status = $this->move( self::PATH_COMPLETE ))) {
+		if ($this->valid() && $this->_status !== self::STATUS_COMPLETE) {
+			if (false !== ($status = $this->_move( self::PATH_COMPLETE ))) {
 				$this->_status = self::STATUS_COMPLETE;
 			}
 			return $status;
@@ -603,8 +603,8 @@ class FileQueueJob extends FileQueueBase
 
 	public function archive()
 	{
-		if ($this->_valid && $this->_status !== self::STATUS_ARCHIVE) {
-			if (false !== ($status = $this->move( self::PATH_ARCHIVE ))) {
+		if ($this->valid() && $this->_status !== self::STATUS_ARCHIVE) {
+			if (false !== ($status = $this->_move( self::PATH_ARCHIVE ))) {
 				$this->_status = self::STATUS_ARCHIVE;
 			}
 			return $status;
@@ -615,7 +615,7 @@ class FileQueueJob extends FileQueueBase
 
 	public function remove()
 	{
-		if ($this->_valid) {
+		if ($this->valid()) {
 			return @unlink( $this->path() . $this->file() );
 		}
 		return false;
@@ -630,9 +630,15 @@ class FileQueueJob extends FileQueueBase
 		}
 		return $status;
 	}
+	
+	
+	public function valid()
+	{
+		return $this->_valid;
+	}
 
 
-	public function move( $path )
+	protected function _move( $path )
 	{
 		$src = $this->path() . $this->file();
 		$dst = $this->_config->path( $path ) . $this->file();
@@ -719,9 +725,9 @@ class FileQueueJobLog extends FileQueueBase
 			if (! @touch( $file )) {
 				throw new RuntimeException( "Could not create joblog file '$file'" );
 			}
-			@chmod( $this->file, self::FILE_MODE );
+			@chmod( $file, self::FILE_MODE );
 		}
-		$this->file = & $file;
+		$this->file = $file;
 	}
 
 

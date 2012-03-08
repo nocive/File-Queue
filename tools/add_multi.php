@@ -1,6 +1,6 @@
 <?php
 
-require_once( '../file_queue.php' );
+require_once( realpath( dirname( __FILE__ ) . '/..' ) . '/file_queue.php' );
 
 echo "wid: " . uniqid( true );
 
@@ -8,7 +8,7 @@ $jobs = 5000;
 $fq = new FileQueue();
 
 for($i=0; $i<$jobs; $i++) {
-	$uid = hash( 'sha1', uniqid( true ) );
+	$id = hash( 'sha1', uniqid( true ) );
 	$payload = array(
 		'some',
 		'random',
@@ -16,8 +16,8 @@ for($i=0; $i<$jobs; $i++) {
 		hash( 'crc32', uniqid( true ) ),
 	);
 
-	echo "adding job id: $uid\n";
-	$fq->add( $uid, $payload );
+	echo "adding job id: $id\n";
+	$fq->add( $id, $payload, $enqueue = true );
 	//usleep(100000);
 }
 

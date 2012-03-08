@@ -1,16 +1,29 @@
 #!/bin/bash
-script="../tests/add.php"
-cd $(dirname $0)
+SCRIPT_PATH=$(readlink -f $(dirname $0))
+APP_PATH=$(readlink -f $SCRIPT_PATH/../)
+SCRIPT=$APP_PATH/tools/add.php
 
-php $script 2>&1 >> add_multi.log &
-php $script 2>&1 >> add_multi.log &
-php $script 2>&1 >> add_multi.log &
-php $script 2>&1 >> add_multi.log &
-php $script 2>&1 >> add_multi.log &
+cd $APP_PATH
+php $SCRIPT 2>&1 >> add_multi.log &
+php $SCRIPT 2>&1 >> add_multi.log &
+php $SCRIPT 2>&1 >> add_multi.log &
+php $SCRIPT 2>&1 >> add_multi.log &
+php $SCRIPT 2>&1 >> add_multi.log &
 
+php $SCRIPT 2>&1 >> add_multi.log &
+php $SCRIPT 2>&1 >> add_multi.log &
+php $SCRIPT 2>&1 >> add_multi.log &
+php $SCRIPT 2>&1 >> add_multi.log &
+php $SCRIPT 2>&1 >> add_multi.log &
 
-php $script 2>&1 >> add_multi.log &
-php $script 2>&1 >> add_multi.log &
-php $script 2>&1 >> add_multi.log &
-php $script 2>&1 >> add_multi.log &
-php $script 2>&1 >> add_multi.log &
+php $SCRIPT 2>&1 >> add_multi.log &
+php $SCRIPT 2>&1 >> add_multi.log &
+php $SCRIPT 2>&1 >> add_multi.log &
+php $SCRIPT 2>&1 >> add_multi.log &
+php $SCRIPT 2>&1 >> add_multi.log &
+
+php $SCRIPT 2>&1 >> add_multi.log &
+php $SCRIPT 2>&1 >> add_multi.log &
+php $SCRIPT 2>&1 >> add_multi.log &
+php $SCRIPT 2>&1 >> add_multi.log &
+php $SCRIPT 2>&1 >> add_multi.log &
