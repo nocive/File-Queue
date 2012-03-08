@@ -3,18 +3,40 @@
 require_once( realpath( dirname( __FILE__ ) . '/..' ) . '/file_queue.php' );
 $fq = new FileQueue();
 
-//var_dump($fq->config->paths());
+$job = $fq->add(null,array(1,2,3),true);
+
+var_dump( $job );
+
+$job->dispatch( function( $id, $payload ) {
+	$payload[] = uniqid('meh', true);
+	echo serialize( $payload );
+	return true;
+});
+
+var_dump( $job );
 
 
-//var_dump($fq->config->joblog()->exists( 'job:123' ));
-var_dump($fq->config->joblog()->remove( 'job:123' ));
+
+
+
+
+
+
+
+
+
 //$job = $fq->job();
-//var_dump($job->move( FileQueue::PATH_COMPLETE ));
-
+//var_dump($job);
 //$fqj = new FileQueueJob( $fq->config );
-//$fqj->load( '/home/nocive/git/File-Queue/queue/tmp/myjobid-123' );
 //$fqj->create();
-//$r = $fqj->create( '123' );
+
+/*$fqj->create();
+var_dump($fqj);
+$fqj->enqueue();
+$fqj->complete();
+$fqj->archive();
+var_dump($fqj);*/
+
 //$fqj->load( '/home/nocive/git/File-Queue/queue/tmp/job-uid-1234-12345' );
 
 //var_dump($fqj);

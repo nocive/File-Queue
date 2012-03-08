@@ -39,6 +39,10 @@ class FileQueueBase
 	const DIR_MODE = 0775;
 	const FILE_MODE = 0666;
 	
+	/**
+	 * @var array
+	 * @access protected
+	 */
 	protected static $_classmap = array( 
 		self::CLASS_JOB => 'FileQueueJob', 
 		self::CLASS_JOBLOG => 'FileQueueJobLog', 
@@ -123,6 +127,10 @@ class FileQueueConfig extends FileQueueBase
 	 */
 	protected $_config = array();
 	
+	/**
+	 * @var array
+	 * @access protected
+	 */
 	protected static $_defaults = array( 
 		self::CFG_PATH_BASE => FILEQUEUE_QUEUE_PATH, 
 		self::CFG_PATH_WORK => '%PATH%/work/', 
@@ -134,6 +142,10 @@ class FileQueueConfig extends FileQueueBase
 		self::CFG_FILE_FORMAT => 'job:%s' 
 	);
 	
+	/**
+	 * @var array
+	 * @access protected
+	 */
 	protected static $_pathmap = array( 
 		self::PATH_BASE => self::CFG_PATH_BASE, 
 		self::PATH_WORK => self::CFG_PATH_WORK, 
@@ -294,9 +306,12 @@ class FileQueue extends FileQueueBase
 	}
 
 
-	public function config( $config = null )
+	public function config()
 	{
-		$this->config->set( $config );
+		return call_user_func_array( array( 
+			$this->config, 
+			'set' 
+		), func_get_args() );
 	}
 
 
@@ -330,80 +345,20 @@ class FileQueue extends FileQueueBase
 	}
 
 
-	public function add( $id, $payload = null, $enqueue = false )
+	public function add( $id = null, $payload = null, $enqueue = false )
 	{
-	
+		$job = $this->_new( self::CLASS_JOB, $this->config, $id, $payload );
+		if ($job->create()) {
+			if ($enqueue) {
+				return $job->enqueue() ? $job : false;
+			}
+			return $job;
+		}
+		return false;
 	}
 
 
-	/*public function add( $uid, $payload, $dispatch = false )
-	{
-		$qfilename = $this->_qfilename( $uid );
-		if ($dispatch !== false) {
-			if (! is_callable( $dispatch )) {
-				throw new InvalidArgumentException( '$dispatch must be a callable resource when not false' );
-			}
-			$qfilename = $this->_qfilename( $uid, 'working' );
-		}
-
-		if (! $this->_jlogaddnx( $uid )) {
-			// a job with that uid already exists
-			return -1;
-		}
-
-		if (false === ($fh = @fopen( $qfilename, 'x' )) || false === @file_put_contents( $qfilename, $this->_pack( $payload ) )) {
-			// failed to lock or write payload to file
-			return -1;
-		}
-
-		@fclose( $fh );
-		@chmod( $qfilename, self::FILE_MODE );
-
-		if ($dispatch !== false) {
-			return $this->dispatch( $uid, $dispatch, $working = true );
-		}
-		return true;
-	}
-
-
-	public function dispatch( $uid, $callback, $working = false )
-	{
-		if (! is_callable( $callback )) {
-			throw new InvalidArgumentException( '$callback must be a valid callable resource' );
-		}
-
-		$qfile = $this->_qfilename( $uid );
-		$qcfile = $this->_qfilename( $uid, 'complete' );
-		$qwfile = $this->_qfilename( $uid, 'working' );
-
-		if ($working || $this->_rename( $qfile, $qwfile )) {
-			if (false === ($payload = file_get_contents( $qwfile ))) {
-				throw new Exception( 'Could not retrieve queue file contents' );
-			}
-
-			$payload = $this->_unpack( $payload );
-			if (false !== $callback( $uid, & $payload )) {
-				$moveto = $qcfile;
-				$status = true;
-			} else {
-				$moveto = $qfile;
-				$status = false;
-			}
-			$payload = $this->_pack( $payload );
-			
-			if (false === @file_put_contents( $qwfile, $payload )) {
-				throw new Exception( 'Failed to update payload' );
-			}
-			if (! $this->_rename( $qwfile, $moveto )) {
-				throw new Exception( "Could not move queue file '$qwfile' to '$moveto'" );
-			}
-			@chmod( $moveto, self::FILE_MODE );
-			return $status;
-		}
-		return -1;
-	}*/
-	
-	protected function _rename( $src, $dest )
+	/*protected function _rename( $src, $dest )
 	{
 		// php's rename doesn't allow not to overwrite if file exists
 		// this works for *nix systems
@@ -413,9 +368,8 @@ class FileQueue extends FileQueueBase
 		} else {
 			return false;
 		}
-	}
-
-
+	}*/
+	
 	protected function _mkdir( $path, $mode = self::DIR_MODE, $recursive = true )
 	{
 		$mode = $mode !== null ? $mode : self::DIR_MODE;
@@ -449,6 +403,11 @@ class FileQueueJob extends FileQueueBase
 	protected $_path;
 	protected $_valid = false;
 	
+	const HASH_ALGO = 'sha1';
+	
+	const PAYLOAD_ID = 'id';
+	const PAYLOAD_DATA = 'data';
+	
 	const STATUS_WORK = 'enqueued';
 	const STATUS_WORKING = 'working';
 	const STATUS_COMPLETE = 'complete';
@@ -456,6 +415,10 @@ class FileQueueJob extends FileQueueBase
 	const STATUS_TMP = 'temporary';
 	const STATUS_UNKNOWN = 'unknown';
 	
+	/**
+	 * @var		array
+	 * @access	protected
+	 */
 	protected static $_statuses = array( 
 		self::PATH_WORK => self::STATUS_WORK, 
 		self::PATH_WORKING => self::STATUS_WORKING, 
@@ -487,11 +450,9 @@ class FileQueueJob extends FileQueueBase
 	{
 		if ($id !== null) {
 			$this->id( $id );
-		}
-		
-		$id = $this->id();
-		if (! $id) {
-			return false;
+		} else {
+			$id = $this->generateId();
+			$this->id( $id );
 		}
 		
 		if ($payload !== null) {
@@ -525,14 +486,14 @@ class FileQueueJob extends FileQueueBase
 		
 		if (false !== ($payload = @file_get_contents( $file ))) {
 			$payload = $this->_unpack( $payload );
-			if (empty( $payload['id'] ) || ! array_key_exists( 'data', $payload )) {
+			if (empty( $payload[self::PAYLOAD_ID] ) || ! array_key_exists( self::PAYLOAD_DATA, $payload )) {
 				throw new RuntimeException( 'Invalid or malformed payload' );
 			}
 			
 			$path = dirname( $file );
 			
-			$this->id( $payload['id'] );
-			$this->payload( $payload['data'] );
+			$this->id( $payload[self::PAYLOAD_ID] );
+			$this->payload( $payload[self::PAYLOAD_DATA] );
 			$this->file( $file );
 			$this->path( $path );
 			$this->_status = $this->_statusFromPath( $path );
@@ -583,34 +544,79 @@ class FileQueueJob extends FileQueueBase
 	}
 
 
+	public function dispatch( $callback )
+	{
+		if (! is_callable( $callback )) {
+			throw new InvalidArgumentException( '$callback must be a valid callable resource' );
+		}
+		
+		if ($this->_status === self::STATUS_WORKING) {
+			return - 1;
+		}
+		
+		if ($this->move( self::PATH_WORKING )) {
+			$payload = $this->payload();
+			if (true === $callback( $this->id(), &$payload )) {
+				$action = 'complete';
+				$status = true;
+			} else {
+				$action = 'enqueue';
+				$status = false;
+			}
+			
+			$this->payload( $payload );
+			$this->store();
+			
+			if (! $this->$action()) {
+				throw new Exception( "Could not '$action' queue file '" . $this->path() . $this->file() . "'" );
+			}
+			
+			return $status;
+		}
+		return - 1;
+	}
+
+
 	public function enqueue()
 	{
 		if ($this->_valid && $this->_status !== self::STATUS_WORK) {
-		
+			if (false !== ($status = $this->move( self::PATH_WORK ))) {
+				$this->_status = self::STATUS_WORK;
+			}
+			return $status;
 		}
 		return false;
 	}
 
 
-	public function dispatch()
-	{
-	}
-
-
 	public function complete()
 	{
+		if ($this->_valid && $this->_status !== self::STATUS_COMPLETE) {
+			if (false !== ($status = $this->move( self::PATH_COMPLETE ))) {
+				$this->_status = self::STATUS_COMPLETE;
+			}
+			return $status;
+		}
+		return false;
 	}
 
 
 	public function archive()
 	{
+		if ($this->_valid && $this->_status !== self::STATUS_ARCHIVE) {
+			if (false !== ($status = $this->move( self::PATH_ARCHIVE ))) {
+				$this->_status = self::STATUS_ARCHIVE;
+			}
+			return $status;
+		}
+		return false;
 	}
 
 
 	public function remove()
 	{
 		if ($this->_valid) {
-			return @unlink( $this->_path . $this->_file );
+			return @unlink( $this->path() . $this->file() );
 		}
 		return false;
 	}
@@ -618,7 +624,7 @@ class FileQueueJob extends FileQueueBase
 
 	public function store( $file = null )
 	{
-		$file = $file === null ? $this->file() : $file;
+		$file = $file === null ? $this->path() . $this->file() : $file;
 		if (false !== ($status = @file_put_contents( $file, $this->_pack() ))) {
 			@chmod( $file, self::FILE_MODE );
 		}
@@ -630,20 +636,23 @@ class FileQueueJob extends FileQueueBase
 	{
 		$src = $this->path() . $this->file();
 		$dst = $this->_config->path( $path ) . $this->file();
-		return @rename( $src, $dst );
+		if (false === ($path = $this->_config->path( $path ))) {
+			return false;
+		}
+		
+		if (false !== ($status = @rename( $src, $dst ))) {
+			$this->path( dirname( $dst ) );
+		}
+		return $status;
 	}
 
 
-	/*public function lock()
+	public function generateId()
 	{
-
+		return hash( self::HASH_ALGO, uniqid( time(), true ) );
 	}
 
 
-	public function unlock()
-	{
-	}*/
-	
 	protected function _filename()
 	{
 		return sprintf( $this->_config->get( self::CFG_FILE_FORMAT ), $this->id() );
@@ -652,7 +661,7 @@ class FileQueueJob extends FileQueueBase
 
 	protected function _pack( $data = null )
 	{
-		$data = $data !== null ? $data : $this->payload;
+		$data = $data !== null ? $data : $this->payload();
 		$data = array( 
 			'id' => $this->id(), 
 			'data' => $data 
@@ -666,7 +675,7 @@ class FileQueueJob extends FileQueueBase
 
 	protected function _unpack( $data = null )
 	{
-		$data = $data !== null ? $data : $this->payload;
+		$data = $data !== null ? $data : $this->payload();
 		if (false === ($data = unserialize( $data ))) {
 			throw new RuntimeException( 'Error decoding data' );
 		}
@@ -712,16 +721,13 @@ class FileQueueJobLog extends FileQueueBase
 			}
 			@chmod( $this->file, self::FILE_MODE );
 		}
-		$this->file = $file;
+		$this->file = & $file;
 	}
 
 
 	public function addnx( $job )
 	{
-		$job = $this->_isJob( $job ) ? $job->id() : $job;
-		if (! is_string( $job )) {
-			throw new InvalidArgumentException( '$job must be either a string or a job object' );
-		}
+		$job = $this->_parseJobParam( $job );
 		
 		$output = array();
 		$pattern = '^' . preg_quote( $job ) . '$';
@@ -734,10 +740,7 @@ class FileQueueJobLog extends FileQueueBase
 
 	public function remove( $job )
 	{
-		$job = $this->_isJob( $job ) ? $job->id() : $job;
-		if (! is_string( $job )) {
-			throw new InvalidArgumentException( '$job must be either a string or a job object' );
-		}
+		$job = $this->_parseJobParam( $job );
 		
 		$output = array();
 		$return = null;
@@ -751,10 +754,7 @@ class FileQueueJobLog extends FileQueueBase
 
 	public function exists( $job )
 	{
-		$job = $this->_isJob( $job ) ? $job->id() : $job;
-		if (! is_string( $job )) {
-			throw new InvalidArgumentException( '$job must be either a string or a job object' );
-		}
+		$job = $this->_parseJobParam( $job );
 		
 		$output = array();
 		$return = null;
@@ -763,6 +763,16 @@ class FileQueueJobLog extends FileQueueBase
 		exec( $cmd, $output, $return );
 		
 		return $return === 0;
+	}
+
+
+	protected function _parseJobParam( $job )
+	{
+		$job = $this->_isJob( $job ) ? $job->id() : $job;
+		if (! is_string( $job )) {
+			throw new InvalidArgumentException( '$job must be either a string or a job object' );
+		}
+		return $job;
 	}
 }
 
