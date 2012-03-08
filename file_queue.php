@@ -1,8 +1,8 @@
 <?php
 
-define( 'FILEQUEUE_SCRIPT_PATH', realpath( dirname( __FILE__ ) ) . '/' );
+define( 'FILEQUEUE_SCRIPT_PATH', realpath( dirname( __FILE__ ) ) . DIRECTORY_SEPARATOR );
 if (! defined( 'FILEQUEUE_QUEUE_PATH' )) {
-	define( 'FILEQUEUE_QUEUE_PATH', FILEQUEUE_SCRIPT_PATH . 'queue/' );
+	define( 'FILEQUEUE_QUEUE_PATH', FILEQUEUE_SCRIPT_PATH . 'queue' . DIRECTORY_SEPARATOR );
 }
 
 /**
@@ -39,8 +39,10 @@ class FileQueueBase
 	const DIR_MODE = 0775;
 	const FILE_MODE = 0666;
 	
+	const DS = DIRECTORY_SEPARATOR;
+	
 	/**
-	 * @var array
+	 * @var    array
 	 * @access protected
 	 */
 	protected static $_classmap = array( 
@@ -110,25 +112,25 @@ class FileQueueBase
  * 
  * Holds configuration shared across classes
  * 
- * @package		FileQueue
- * @subpackage	FileQueueConfig
+ * @package    FileQueue
+ * @subpackage FileQueueConfig
  */
 class FileQueueConfig extends FileQueueBase
 {
 	/**
-	 * @var		FileQueueJobLog
-	 * @access	protected
+	 * @var    FileQueueJobLog
+	 * @access protected
 	 */
 	protected $_joblog;
 	
 	/**
-	 * @var		array
-	 * @access	protected
+	 * @var    array
+	 * @access protected
 	 */
 	protected $_config = array();
 	
 	/**
-	 * @var array
+	 * @var    array
 	 * @access protected
 	 */
 	protected static $_defaults = array( 
@@ -143,7 +145,7 @@ class FileQueueConfig extends FileQueueBase
 	);
 	
 	/**
-	 * @var array
+	 * @var    array
 	 * @access protected
 	 */
 	protected static $_pathmap = array( 
@@ -209,9 +211,9 @@ class FileQueueConfig extends FileQueueBase
 			if (array_key_exists( $var, self::$_defaults )) {
 				if ($var !== self::CFG_PATH_BASE) {
 					if (in_array( $var, self::$_pathmap, true )) {
-						$value = str_replace( '%PATH%', rtrim( $this->_config[self::CFG_PATH_BASE], '/' ), rtrim( $value, '/' ) . '/' );
+						$value = str_replace( '%PATH%', rtrim( $this->_config[self::CFG_PATH_BASE], self::DS ), rtrim( $value, self::DS ) . self::DS );
 					} elseif ($var === self::CFG_JOBLOG) {
-						$value = str_replace( '%PATH%', rtrim( $this->_config[self::CFG_PATH_BASE], '/' ), $value );
+						$value = str_replace( '%PATH%', rtrim( $this->_config[self::CFG_PATH_BASE], self::DS ), $value );
 					}
 				}
 				$this->_config[$var] = $value;
@@ -261,19 +263,19 @@ class FileQueueConfig extends FileQueueBase
  * 
  * Holds logic for getting and creating work
  * 
- * @package		FileQueue
- * @subpackage	FileQueue
+ * @package    FileQueue
+ * @subpackage FileQueue
  */
 class FileQueue extends FileQueueBase
 {
 	/**
-	 * @var FileQueueConfig
+	 * @var    FileQueueConfig
 	 * @access public
 	 */
 	public $config;
 	
 	/**
-	 * @var FileQueueJobLog
+	 * @var    FileQueueJobLog
 	 * @access protected
 	 */
 	protected $_joblog;
@@ -335,13 +337,26 @@ class FileQueue extends FileQueueBase
 	}
 
 
-	public function job()
+	public function job( $retries = 5, $sleep = 100000 )
 	{
-		$work = $this->work( 1 );
-		if (! empty( $work ) && is_array( $work )) {
-			return current( $work );
-		}
-		return false;
+		$return = false;
+		$retryc = 1;
+		
+		do {
+			$work = $this->work( 1 );
+			if (empty( $work ) || ! is_array( $work )) {
+				break;
+			}
+			$job = current( $work );
+			if ($job->valid()) {
+				return $job;
+			}
+			$retryc ++;
+			//echo "RETRYING... ";
+			usleep( $sleep );
+		} while ( $retryc <= $retries );
+		
+		return $return;
 	}
 
 
@@ -385,14 +400,14 @@ class FileQueue extends FileQueueBase
  * 
  * Contains logic for handling jobs
  * 
- * @package		FileQueue
- * @subpackage	FileQueueJob
+ * @package    FileQueue
+ * @subpackage FileQueueJob
  */
 class FileQueueJob extends FileQueueBase
 {
 	/**
-	 * @var		FileQueueConfig
-	 * @access	protected
+	 * @var    FileQueueConfig
+	 * @access protected
 	 */
 	protected $_config;
 	
@@ -415,9 +430,12 @@ class FileQueueJob extends FileQueueBase
 	const STATUS_TMP = 'temporary';
 	const STATUS_UNKNOWN = 'unknown';
 	
+	const METHOD_ENQUEUE = 'enqueue';
+	const METHOD_COMPLETE = 'complete';
+	
 	/**
-	 * @var		array
-	 * @access	protected
+	 * @var    array
+	 * @access protected
 	 */
 	protected static $_statuses = array( 
 		self::PATH_WORK => self::STATUS_WORK, 
@@ -540,7 +558,7 @@ class FileQueueJob extends FileQueueBase
 			return $this->_path;
 		}
 		
-		$this->_path = rtrim( func_get_arg( 0 ), '/' ) . '/';
+		$this->_path = rtrim( func_get_arg( 0 ), self::DS ) . self::DS;
 	}
 
 
@@ -550,17 +568,17 @@ class FileQueueJob extends FileQueueBase
 			throw new InvalidArgumentException( '$callback must be a valid callable resource' );
 		}
 		
-		if ($this->_status !== self::STATUS_WORK) {
+		if (! $this->valid() || $this->_status !== self::STATUS_WORK) {
 			return - 1;
 		}
 		
 		if ($this->_move( self::PATH_WORKING )) {
 			$payload = $this->payload();
 			if (true === $callback( $this->id(), &$payload )) {
-				$action = 'complete';
+				$action = self::METHOD_COMPLETE;
 				$status = true;
 			} else {
-				$action = 'enqueue';
+				$action = self::METHOD_ENQUEUE;
 				$status = false;
 			}
 			
@@ -630,8 +648,8 @@ class FileQueueJob extends FileQueueBase
 		}
 		return $status;
 	}
-	
-	
+
+
 	public function valid()
 	{
 		return $this->_valid;
@@ -669,8 +687,8 @@ class FileQueueJob extends FileQueueBase
 	{
 		$data = $data !== null ? $data : $this->payload();
 		$data = array( 
-			'id' => $this->id(), 
-			'data' => $data 
+			self::PAYLOAD_ID => $this->id(), 
+			self::PAYLOAD_DATA => $data 
 		);
 		if (false === ($data = serialize( $data ))) {
 			throw new RuntimeException( 'Error encoding data' );
@@ -691,7 +709,7 @@ class FileQueueJob extends FileQueueBase
 
 	protected function _statusFromPath( $path )
 	{
-		$path = rtrim( $path, '/' ) . '/';
+		$path = rtrim( $path, self::DS ) . self::DS;
 		foreach ( $this->_config->paths() as $pathAlias => $pathCfgName ) {
 			if ($path === $this->_config->path( $pathAlias )) {
 				return self::$_statuses[$pathAlias];
@@ -707,8 +725,8 @@ class FileQueueJob extends FileQueueBase
  * Handles file queue job log, which is basically a
  * text file containing all job id's for job tracking
  * 
- * @package		FileQueue
- * @subpackage	FileQueueBase
+ * @package    FileQueue
+ * @subpackage FileQueueBase
  */
 class FileQueueJobLog extends FileQueueBase
 {
