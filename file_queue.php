@@ -315,19 +315,19 @@ class FileQueue extends FileQueueBase
 
 	public function work( $limit = 10 )
 	{
-		$workPath = $this->config->path( self::PATH_WORK );
-		
+		$path = $this->config->path( self::PATH_WORK );
 		$limit = (int) $limit;
-		$output = array();
+
 		// get flat files only ordered by modification time and limited by $limit
 		// i rather exec() my way through this than using native php code
 		// grep -m $limit was necessary to fix Broken pipe grep errors when combined with head
-		$cmd = 'ls -tr1p ' . escapeshellarg( $workPath ) . " 2>/dev/null | grep -v -m $limit /\\$ | head -n $limit";
+		$cmd = 'ls -tr1p ' . escapeshellarg( $path ) . " 2>/dev/null | grep -v -m $limit /\\$ | head -n $limit";
+		$output = array();
 		exec( $cmd, $output );
 		
 		$jobs = array();
-		foreach ( $output as $line ) {
-			$jobs[] = $this->_new( self::CLASS_JOB, $this->config, null, null, $workPath . $line );
+		foreach ( $output as $file ) {
+			$jobs[] = $this->_new( self::CLASS_JOB, $this->config, null, null, $path . $file );
 		}
 		return $jobs;
 	}
@@ -354,6 +354,28 @@ class FileQueue extends FileQueueBase
 			}
 		}
 		return false;
+	}
+
+
+	public function archive( $daysOld = 10, $maxFiles = 100 )
+	{
+		$path = $this->config->path( self::PATH_COMPLETE );
+		$daysOld = (int) $daysOld;
+		$maxFiles = (int) $maxFiles;
+
+		$cmd = "find " . escapeshellarg( $path ) . " -maxdepth 1 -type f -ctime -$daysOld | head -n $maxFiles";
+		$output = array();
+		exec( $cmd, $output );
+
+		if (empty( $output )) {
+			return false;
+		}
+
+		foreach( $output as $file ) {
+			$job = $this->_new( self::CLASS_JOB, $this->config, null, null, $file );
+			$job->archive();
+		}
+		return true;
 	}
 
 
@@ -546,13 +568,9 @@ class FileQueueJob extends FileQueueBase
 		
 		if ($this->_move( self::PATH_WORKING )) {
 			$payload = $this->payload();
-			if (true === $callback( $this->id(), &$payload )) {
-				$action = self::METHOD_COMPLETE;
-				$status = true;
-			} else {
-				$action = self::METHOD_ENQUEUE;
-				$status = false;
-			}
+
+			$status = $callback( $this->id(), &$payload );
+			$action = $status ? self::METHOD_COMPLETE : self::METHOD_ENQUEUE;
 			
 			$this->payload( $payload );
 			$this->store();
@@ -591,10 +609,11 @@ class FileQueueJob extends FileQueueBase
 	}
 
 
-	public function archive()
+	public function archive( $removeFromLog = true )
 	{
 		if ($this->valid() && $this->_status !== self::STATUS_ARCHIVE) {
 			if (false !== ($status = $this->_move( self::PATH_ARCHIVE ))) {
+				// TODO remove from joblog
 				$this->_status = self::STATUS_ARCHIVE;
 			}
 			return $status;
@@ -603,10 +622,11 @@ class FileQueueJob extends FileQueueBase
 	}
 
 
-	public function remove()
+	public function remove( $removeFromLog = true )
 	{
 		if ($this->valid()) {
 			return @unlink( $this->path() . $this->file() );
+			// TODO remove from joblog
 		}
 		return false;
 	}
@@ -764,6 +784,7 @@ class FileQueueJobLog extends FileQueueBase
 
 	protected function _parseJobParam( $job )
 	{
+		// TODO $this->id ?? should be $this->file()
 		$job = $this->_isJob( $job ) ? $job->id() : $job;
 		if (! is_string( $job )) {
 			throw new InvalidArgumentException( '$job must be either a string or a job object' );
