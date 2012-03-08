@@ -16,41 +16,27 @@ $callback = function ($uid, $payload) {
 };
 
 while (true) {
+
+	$start = microtime( true );
+
 	ob_start();
 	echo "wid: $workerId >> ";
 
-//	$maxRetries = 5;
-//	$retries = 0;
 	$sleep = false;
-//	do {
-		$job = $fq->job();
-		if (! $job) {
-			echo 'no jobs found, sleeping';
-			$sleep = 10000000;
-			//break;
-//		} elseif (! $job->valid()) {
-//			echo 'job is no longer available';
-//			$sleep = 500000;
-			//break;
+	$job = $fq->job();
+	if (! $job) {
+		echo 'no jobs found, sleeping';
+		$sleep = 10000000;
+	} else {
+		echo "got job id: {$job->id()}; ";
+		if (-1 !== ($status = $job->dispatch( $callback ))) {
+			echo "dispatch status: " . var_export( $status, true ) . '; ';
 		} else {
-			echo "got job id: {$job->id()}; ";
-			if (-1 !== ($status = $job->dispatch( $callback))) {
-				echo "dispatch status: " . var_export( $status, true ) . '; ';
-				//break;
-			} else {
-				echo 'job was locked by another worker or is no longer available';
-			}
-			$sleep = 500000;
+			echo 'job was locked by another worker or is no longer available';
 		}
-//		$retries++;
-//	} while ($retries < $maxRetries);
-
-	//if ($retries >= $maxRetries) {
-	//	echo "failed after $maxRetries retries";
-	//} else {
-	//	$sleep = 5000000;
-	//}
-	echo "\n";
+		$sleep = 500000;
+	}
+	echo " | took: " . round( (float) microtime( true ) - $start, 4 ) . " s \n";
 	ob_end_flush();
 
 	if (! $loop) {

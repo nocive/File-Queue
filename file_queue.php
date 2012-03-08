@@ -75,11 +75,7 @@ class FileQueueBase
 		}
 		
 		$classAlias = array_shift( $args );
-		$className = isset( self::$_classmap[$classAlias] ) ? self::$_classmap[$classAlias] : null;
-		
-		if (! $className) {
-			throw new InvalidArgumentException( "Invalid class alias '$classAlias'" );
-		}
+		$className = $this->_className( $classAlias );
 		
 		switch ($argc) {
 		case 1:
@@ -337,26 +333,15 @@ class FileQueue extends FileQueueBase
 	}
 
 
-	public function job( $retries = 5, $sleep = 100000 )
+	public function job( $retries = 10 )
 	{
-		$return = false;
-		$retryc = 1;
-		
-		do {
-			$work = $this->work( 1 );
-			if (empty( $work ) || ! is_array( $work )) {
-				break;
-			}
-			$job = current( $work );
+		$work = $this->work( $retries );
+		foreach( $work as $job ) {
 			if ($job->valid()) {
 				return $job;
 			}
-			$retryc ++;
-			//echo "RETRYING... ";
-			usleep( $sleep );
-		} while ( $retryc <= $retries );
-		
-		return $return;
+		}
+		return false;
 	}
 
 
@@ -364,27 +349,14 @@ class FileQueue extends FileQueueBase
 	{
 		$job = $this->_new( self::CLASS_JOB, $this->config, $id, $payload );
 		if ($job->create()) {
-			if ($enqueue) {
-				return $job->enqueue() ? $job : false;
+			if (! $enqueue || ($enqueue && $job->enqueue())) {
+				return $job;
 			}
-			return $job;
 		}
 		return false;
 	}
 
 
-	/*protected function _rename( $src, $dest )
-	{
-		// php's rename doesn't allow not to overwrite if file exists
-		// this works for *nix systems
-		if (@link( $src, $dest )) {
-			@unlink( $src );
-			return true;
-		} else {
-			return false;
-		}
-	}*/
-	
 	protected function _mkdir( $path, $mode = self::DIR_MODE, $recursive = true )
 	{
 		$mode = $mode !== null ? $mode : self::DIR_MODE;
@@ -656,6 +628,12 @@ class FileQueueJob extends FileQueueBase
 	}
 
 
+	public function generateId()
+	{
+		return hash( self::HASH_ALGO, uniqid( time(), true ) );
+	}
+
+
 	protected function _move( $path )
 	{
 		$src = $this->path() . $this->file();
@@ -668,12 +646,6 @@ class FileQueueJob extends FileQueueBase
 			$this->path( dirname( $dst ) );
 		}
 		return $status;
-	}
-
-
-	public function generateId()
-	{
-		return hash( self::HASH_ALGO, uniqid( time(), true ) );
 	}
 
 
