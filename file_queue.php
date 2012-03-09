@@ -317,7 +317,7 @@ class FileQueue extends FileQueueBase
 	{
 		$path = $this->config->path( self::PATH_WORK );
 		$limit = (int) $limit;
-
+		
 		// get flat files only ordered by modification time and limited by $limit
 		// i rather exec() my way through this than using native php code
 		// grep -m $limit was necessary to fix Broken pipe grep errors when combined with head
@@ -336,7 +336,7 @@ class FileQueue extends FileQueueBase
 	public function job( $retries = 10 )
 	{
 		$work = $this->work( $retries );
-		foreach( $work as $job ) {
+		foreach ( $work as $job ) {
 			if ($job->valid()) {
 				return $job;
 			}
@@ -362,16 +362,16 @@ class FileQueue extends FileQueueBase
 		$path = $this->config->path( self::PATH_COMPLETE );
 		$daysOld = (int) $daysOld;
 		$maxFiles = (int) $maxFiles;
-
+		
 		$cmd = "find " . escapeshellarg( $path ) . " -maxdepth 1 -type f -ctime -$daysOld | head -n $maxFiles";
 		$output = array();
 		exec( $cmd, $output );
-
+		
 		if (empty( $output )) {
 			return false;
 		}
-
-		foreach( $output as $file ) {
+		
+		foreach ( $output as $file ) {
 			$job = $this->_new( self::CLASS_JOB, $this->config, null, null, $file );
 			$job->archive();
 		}
@@ -492,11 +492,7 @@ class FileQueueJob extends FileQueueBase
 
 	public function load( $file )
 	{
-		if (! is_file( $file ) || ! is_writable( $file )) {
-			return false;
-		}
-		
-		if (false !== ($payload = @file_get_contents( $file ))) {
+		if (is_file( $file ) && is_writable( $file ) && false !== ($payload = @file_get_contents( $file ))) {
 			$payload = $this->_unpack( $payload );
 			if (empty( $payload[self::PAYLOAD_ID] ) || ! array_key_exists( self::PAYLOAD_DATA, $payload )) {
 				throw new RuntimeException( 'Invalid or malformed payload' );
@@ -562,13 +558,9 @@ class FileQueueJob extends FileQueueBase
 			throw new InvalidArgumentException( '$callback must be a valid callable resource' );
 		}
 		
-		if (! $this->valid() || $this->_status !== self::STATUS_WORK) {
-			return - 1;
-		}
-		
-		if ($this->_move( self::PATH_WORKING )) {
+		if ($this->valid() && $this->_status !== self::STATUS_WORKING && $this->_move( self::PATH_WORKING )) {
 			$payload = $this->payload();
-
+			
 			$status = $callback( $this->id(), &$payload );
 			$action = $status ? self::METHOD_COMPLETE : self::METHOD_ENQUEUE;
 			
@@ -587,48 +579,53 @@ class FileQueueJob extends FileQueueBase
 
 	public function enqueue()
 	{
+		$status = false;
 		if ($this->valid() && $this->_status !== self::STATUS_WORK) {
 			if (false !== ($status = $this->_move( self::PATH_WORK ))) {
 				$this->_status = self::STATUS_WORK;
 			}
-			return $status;
 		}
-		return false;
+		return $status;
 	}
 
 
 	public function complete()
 	{
+		$status = false;
 		if ($this->valid() && $this->_status !== self::STATUS_COMPLETE) {
 			if (false !== ($status = $this->_move( self::PATH_COMPLETE ))) {
 				$this->_status = self::STATUS_COMPLETE;
 			}
-			return $status;
 		}
-		return false;
+		return $status;
 	}
 
 
 	public function archive( $removeFromLog = true )
 	{
+		$status = false;
 		if ($this->valid() && $this->_status !== self::STATUS_ARCHIVE) {
 			if (false !== ($status = $this->_move( self::PATH_ARCHIVE ))) {
-				// TODO remove from joblog
 				$this->_status = self::STATUS_ARCHIVE;
+				if ($removeFromLog) {
+					$this->_config->joblog()->remove( $this );
+				}
 			}
-			return $status;
 		}
-		return false;
+		return $status;
 	}
 
 
 	public function remove( $removeFromLog = true )
 	{
-		if ($this->valid()) {
-			return @unlink( $this->path() . $this->file() );
-			// TODO remove from joblog
+		$status = false;
+		if ($this->valid() && false !== ($status = @unlink( $this->path() . $this->file() ))) {
+			if ($removeFromLog) {
+				$this->_config->joblog()->remove( $this );
+			}
 		}
-		return false;
+		
+		return $status;
 	}
 
 
@@ -720,6 +717,7 @@ class FileQueueJob extends FileQueueBase
  * @package    FileQueue
  * @subpackage FileQueueBase
  */
+
 class FileQueueJobLog extends FileQueueBase
 {
 	public $file;
