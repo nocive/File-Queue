@@ -11,8 +11,8 @@ if (! defined( 'FILEQUEUE_QUEUE_PATH' )) {
  * This class is extended by all all others
  * Shares some globally useful constants and functions
  * 
- * @package		FileQueue
- * @subpackage	FileQueueBase
+ * @package    FileQueue
+ * @subpackage FileQueueBase
  */
 class FileQueueBase
 {
@@ -485,7 +485,7 @@ class FileQueueJob extends FileQueueBase
 			$this->_valid = true;
 			return true;
 		}
-		$this->config->joblog()->remove( $this );
+		$this->config->joblog()->remove( $file );
 		return false;
 	}
 
@@ -784,8 +784,7 @@ class FileQueueJobLog extends FileQueueBase
 
 	protected function _parseJobParam( $job )
 	{
-		// TODO $this->id ?? should be $this->file()
-		$job = $this->_isJob( $job ) ? $job->id() : $job;
+		$job = $this->_isJob( $job ) ? $job->file() : $job;
 		if (! is_string( $job )) {
 			throw new InvalidArgumentException( '$job must be either a string or a job object' );
 		}
