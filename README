@@ -1,0 +1,2 @@
+Simple file queue for asynchronous job processing.
+This relies on ls -lt for getting work, so naturally it becomes slow with a high number of jobs.
